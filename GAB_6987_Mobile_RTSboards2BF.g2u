@@ -1,0 +1,594 @@
+﻿Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+F.Intrinsic.Control.Try
+V.Local.sError.Declare
+
+'Programmed for GS Mobile
+'by Brady Stevens
+'11/30/22
+'activate to custom mobile transaction hook 39001-39005
+'Return to Stock / Drop J55 transaction for board FT material
+'Programmed for Boyce Highlands/Highland Hardwoods
+
+'Business Case
+'Boyce Highlands and Highland Hardwoods receive and work with units of lumber.  A unit is a bundle of random lengths and widths.  Within a unit there will be several lots that are defined by the length and the width of the boards.  The unit number in GSS will be all characters in the lot number prior to the “-“.
+'Sample Lots (Unit with Suffix) – 345562-001, 345562-002, 345562-003
+'Sample Unit – 345562 (stored in ITEM_MASTER.USER_FIELD_3)
+'They will have a custom PO receipts screen to enter the Tally Sheet which contains the quantities of each dimension.  The tally sheet is a packing list for the lumber industry.  Tally sheet sample is included in the appendix.
+'In certain cases Boyce will issue an entire Unit to a Job.  They will use some of the lots within the unit and then return the rest to stock.
+'Boyce Highlands needs a custom mobile transaction to return unused lots to stock by scanning or entering the Lot Number.
+
+'Scan or Enter JobSuffixSeq barcode from WO
+'Scan or Enter Lot Number (Full Lot number.  NOT Unit Number)
+'Enter Number of Pieces (Default to Blank)
+'-	Unit of Measure in inventory is Boardfeet (BF).
+'-	BF = Pieces Entered * Boardfeet per Board
+'-	We store the Boardfeet per Board in ITEM_MASTER.USER_FIELD_7
+'Scan of Enter Bin – If no BIN entered return to original Bin
+
+'validate seq part is UM=BF
+'validate job is not closed
+'validate seq part matches lot part/loc
+'validate inputted bin exists in bin master
+
+Function.ODBC.Connection!Conx.Opencompanyconnection
+
+V.Local.sQuery.Declare(String)
+V.Local.sLabel.Declare(String)
+V.Local.iQuantity.Declare(Long,0)
+V.Local.sCartonQty.Declare(Long)
+V.Local.sJob.Declare(String)
+V.Local.sSuffix.Declare(String)
+V.Local.sSeq.Declare(String)
+V.Local.sJobSuffix.Declare(String)
+V.Local.sName.Declare(String)
+V.Local.sValue.Declare(String)
+V.Local.sUID.Declare(String)
+V.Local.sUPID.Declare(String)
+V.Local.sUserid.Declare(String)
+V.Local.sPrinter.Declare(String)
+V.Local.sReportName.Declare(String)
+V.Local.sTransID.Declare(String)
+V.Local.sTransSfx.Declare(String)
+V.Local.sPart.Declare(String)
+V.Local.sMPart.Declare(String)
+V.Local.sPartloc.Declare(String)
+V.Local.sDescription.Declare(String)
+V.Local.sCustomer.Declare(String)
+V.Local.sPO.Declare(String)
+V.Local.sSO.Declare(String)
+V.Local.sSOline.Declare(String)
+V.Local.sPrefix.Declare(String)
+V.Local.sTransType.Declare(String)
+V.Local.sDueDate.Declare(String)
+V.Local.sCloseDate.Declare(String)
+V.Local.sBiRpt.Declare(String)
+V.Local.dateyymmdd.Declare(String)
+V.Local.timemmnnss.Declare(String)
+V.Local.timehhnn.Declare(String)
+V.Local.seqkey.Declare(String)
+V.Local.sGSUser.Declare(String)
+V.Local.sGUserid.Declare(String)
+V.Local.sMessage.Declare(String)
+V.Local.sMessageID.Declare(Long)
+V.Local.sLot.Declare(String)
+V.Local.sVendor.Declare(String)
+V.Local.sResults.Declare(String)
+V.Local.sLotQty.Declare(Float)
+V.Local.sItemHistoryLotQty.Declare(float)
+V.Local.sItemHistoryLotQtyR.Declare(float)
+V.Local.scounter.Declare(Long)
+V.Local.stransIDnew.Declare(String)
+V.Local.snewlot.Declare(String)
+V.Local.snewlotqty.Declare(Long)
+V.Local.snewlotqtytxt.Declare(String)
+V.Local.sbin.Declare(String)
+V.Local.slotcost.Declare(Float)
+V.Local.sheat.Declare(String)
+V.Local.sserial.Declare(String)
+V.Local.spallet1qty.Declare(Long)
+V.Local.matchtoitemhistory.Declare(String)
+'added for DCC
+V.Local.sIDlink.Declare(String)
+V.Local.iIDLink.Declare(Long)
+V.Local.sDccExists.Declare(String)
+V.Local.iFileNumdcc.Declare(Long)
+V.Local.sFiledcc.Declare(String)
+V.Local.sHistBin.Declare(String)
+V.Local.sIDLink2.Declare(String)
+V.Local.iIDLink2.Declare(Long)
+V.Local.sSql.Declare(String)
+V.Local.sSql2.Declare(String)
+v.Local.fLength.Declare(Float,0)
+v.Local.fWidth.Declare(Float,0)
+v.Local.fLengthinput.Declare(Float,0)
+v.Local.fWidthinput.Declare(Float,0)
+v.Local.sDropPart.Declare(String)
+v.Local.sdimserial.Declare(String)
+v.Local.iBIRunID.Declare(Long)
+V.Local.iBILogID.Declare(Long)
+v.Local.slabelname.Declare(String)
+v.Local.iRptID.Declare(String)
+v.Local.sReportpath.Declare(String)
+v.Local.bExists.Declare(Boolean)
+v.Local.iLabels.Declare(long,1)
+v.Local.fLBS.Declare(Float,0)
+v.Local.sUM.Declare(String)
+v.Local.stemp.Declare(String)
+v.Local.bisnumeric.Declare(Boolean)
+v.Local.fLxW.Declare(Float,0)
+V.Local.fLIxWI.Declare(Float,0)
+V.Local.fWtperFoot.Declare(Float,0)
+v.Local.snewlotsuffix.Declare(String)
+v.Local.iPCs.Declare(Long)
+v.Local.fBFperboard.Declare(Float)
+v.Local.bRev.Declare(Boolean,False)
+v.local.sPartRev.Declare(String)
+V.Local.sUser1.Declare(String)
+V.Local.sUser2.Declare(String)
+V.Local.sUser3.Declare(String)
+'Function.Intrinsic.Debug.InvokeDebugger
+Function.Intrinsic.Debug.Stop
+
+'execute if WIR200 hook for J55 transaction is active for 31982
+F.Intrinsic.Control.If(v.Caller.Hook,=,"31982")
+	v.Local.sTransID.Set(v.Passed.LINE-ID)
+	V.Local.sTransSfx.Set("0000")
+	V.Local.sPrinter.Set("")
+'Function.Intrinsic.Debug.InvokeDebugger
+Function.Intrinsic.Debug.Stop	
+	F.Intrinsic.String.Build("Select Field_1, Field_2, Field_3, Field_4, Field_5, Field_6, Field_7, Field_8, Field_9, Field_10, Field_11, Field_12, Field_20, Field_22, Trans_Type from WIRELESS_LINE WHERE TRANS_ID = '{0}'", V.Local.sTransID, V.Local.sSQL)
+	Function.ODBC.Connection!Conx.OpenRecordsetRO("rstWIR",V.Local.sSQL)
+	
+	v.Local.sLotQty.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_4)
+	f.Intrinsic.Math.Div(v.Local.sLotQty,10000,v.Local.sLotQty)
+	'added 09/09/21 for BEG to get number of labels to print
+	v.Local.iLabels.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_22)
+	V.Local.sJob.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_9)
+	V.Local.sSuffix.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_10)
+	V.Local.sSeq.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_11)
+	
+	'check if RTS transaction is negative qty
+	F.Intrinsic.Control.If(v.Local.sLotQty,>=,0)
+		F.Intrinsic.Control.CallSub(close)
+	F.Intrinsic.Control.EndIf
+	
+	'close material sequence if drop transaction
+	F.Global.Callwrapper.New("CloseWOSeq","Manufacturing.CloseWorkOrderSequence")
+	F.Global.Callwrapper.SetProperty("CloseWOSeq","BeginningWorkOrder",V.Local.sJob)
+	F.Global.Callwrapper.SetProperty("CloseWOSeq","BeginningWorkOrderSuffix",V.Local.sSuffix)
+	F.Global.Callwrapper.SetProperty("CloseWOSeq","WorkOrderSequence",V.Local.sSeq)
+	F.Global.Callwrapper.SetProperty("CloseWOSeq","CloseDate",V.Ambient.Date)
+	F.Global.Callwrapper.Run("CloseWOSeq")
+	
+	F.ODBC.Conx!rstWIR.Close
+	
+	'print drop label
+	
+	'load data table 
+	F.Intrinsic.String.Build("select WL.TRANS_ID, WL.TRANS_TYPE, WL.USER_ID, WL.PART, WL.LOCN, WL.LOT, WL.BIN, WL.HEAT, WL.SERIAL, WL.ISSUE_QTY AS QTY_ON_LABEL , WL.DESCRIPTION AS DESCR, JH.CUSTOMER_PO AS PO_FROM_WO, WL.DESCR2, WL.WO_NBR AS WO, WL.WO_SUFFIX, WL.WO_SEQ from WIRELESS_LABEL WL LEFT OUTER JOIN V_JOB_HEADER JH ON WL.WO_NBR=JH.JOB AND WL.WO_SUFFIX=JH.SUFFIX WHERE TRANS_ID = '{0}'", V.Local.sTransID, V.Local.sSQL)
+		F.Data.DataTable.CreateFromSQL("SFIssue", "conx", V.Local.sSQL)
+		
+	'get label printer
+		F.Global.Mobile.GetCustomPrinter(v.Local.sTransID,v.Local.sUPID)
+		F.Intrinsic.String.Split(V.Local.sUPID,"*!*",V.Local.sUPID)
+		Function.Global.Mobile.GetPrinterNamefromID(v.Local.sUPID(1),v.Local.sPrinter)
+		
+	'add LABEL_COPY column to datatable
+	F.Data.DataTable.AddColumn("SFIssue", "LABEL_COPY", "Long", v.Local.iLabels)
+	
+	F.Global.BI.GetRunID(V.local.iBIRunID)
+	
+		F.Intrinsic.String.Concat(V.Caller.BusintDir,"\labels\custom\","GAB_6987_SF_Issue_Drop_1874.lab",V.local.sReportpath)
+		f.Intrinsic.File.Exists(v.Local.sReportpath,v.Local.bExists)
+		F.Intrinsic.Control.If(V.Local.bExists,=,False)
+			F.Intrinsic.Debug.SetLA("GAB_6987_SF_Issue_Drop_1874.lab Doesn't Exist")
+			F.Intrinsic.Control.CallSub(close)
+		F.Intrinsic.Control.EndIf
+		
+		F.Intrinsic.Debug.SetLA("GAB_6987_SF_Issue_Drop_1874")
+		F.Global.BI.InitializeReport("RTS Lot Label",V.local.sReportpath,V.Local.iRptID)
+		F.Global.BI.StartLogging(V.local.iBIRunID,V.Local.iRptID,-1,"",V.Local.iBILogID)	
+		F.Global.BI.PrintCodesoftLabelfromdatatable(v.Local.iBIRunID,v.Local.iBILogID,"SFIssue",v.Local.sPrinter,True)
+		'Stopping Logging
+		F.Global.BI.StopLogging(V.Local.iBILogID)
+		
+	' Close the table we don't need anymore 
+	F.Data.DataTable.Close("SFIssue")
+	F.Intrinsic.Control.CallSub(close)
+
+'execute GAB if for custom mobile transaction id 1-5 (39001-39005)
+F.Intrinsic.Control.Else
+
+V.Local.sTransID.Set(V.Passed.DATA-TRANSID)
+V.Local.sTransSfx.Set("0000")
+V.Local.sPrinter.Set("")
+Function.Intrinsic.Debug.Stop
+
+	F.Intrinsic.String.Concat("Select Field_1, Field_2, Field_3, Field_4, Field_5, Field_6, Trans_Type  from WIRELESS_LINE where TRANS_ID = '",V.Local.sTransID,"'",V.Local.sQuery)
+	Function.ODBC.Connection!Conx.OpenRecordsetRO("rstWIR",V.Local.squery)
+	V.Local.sTransType.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Trans_Type)
+	V.Local.sJobSuffix.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_1)
+	F.Intrinsic.String.Left(V.Local.sJobSuffix,2,V.Local.sPrefix)
+	F.Intrinsic.Control.If(V.Local.sPrefix,=,"%/")
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,3,6,V.Local.sJob)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,9,3,V.Local.sSuffix)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,12,6,V.Local.sSeq)
+	F.Intrinsic.Control.ElseIf(V.Local.sPrefix,=,"$%")
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,3,6,V.Local.sJob)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,9,3,V.Local.sSuffix)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,12,6,V.Local.sSeq)
+	F.Intrinsic.Control.Else
+		F.Intrinsic.String.Left(V.Local.sJobSuffix,6,V.Local.sJob)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,7,3,V.Local.sSuffix)
+		F.Intrinsic.String.Mid(V.Local.sJobSuffix,10,6,V.Local.sSeq)
+	F.Intrinsic.Control.EndIf
+	V.Local.sLot.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_2)
+
+	f.Intrinsic.Math.IsNumeric(V.ODBC.Conx!rstWIR.FieldValTrim!Field_3,v.Local.bisnumeric)
+	f.Intrinsic.Control.if(v.Local.bisnumeric)
+		V.Local.iPCs.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_3)
+	f.Intrinsic.Control.Else
+		v.Local.iPCs.Set(0)
+	f.Intrinsic.Control.EndIf
+	V.Local.sbin.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_4)
+
+'	f.Intrinsic.String.Build("W:{1} x L:{0}",v.Local.fLengthinput,v.Local.fWidthinput,v.Local.sdimserial)
+'	V.Local.sBin.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_5)
+'	v.Local.iLabels.Set(V.ODBC.Conx!rstWIR.FieldValTrim!Field_6)
+
+F.ODBC.Conx!rstWIR.Close
+
+F.Intrinsic.String.build("Select DEFAULT_PRINTER,LABEL_PRINTER,USER_ID  from WIRELESS_HDR where TRANS_ID = '{0}'",V.Local.sTransID,V.Local.sQuery)
+	Function.ODBC.Connection!Conx.OpenRecordsetRO("rstWIR1",V.Local.squery)
+	V.Local.sPrinter.Set(V.ODBC.Conx!rstWIR1.FieldVal!LABEL_PRINTER)
+	V.Local.sUID.Set(V.ODBC.Conx!rstWIR1.FieldVal!USER_ID)
+
+F.Intrinsic.String.build("SELECT JOB_HEADER.CUSTOMER,JOB_HEADER.DATE_DUE,JOB_HEADER.DATE_CLOSED,JOB_HEADER.PART,JOB_HEADER.LOCATION,JOB_HEADER.DESCRIPTION,JOB_HEADER.CUSTOMER_PO,V_ORDER_TO_WO.ORDER_NO,V_ORDER_TO_WO.ORDER_LINE FROM JOB_HEADER LEFT OUTER JOIN V_ORDER_TO_WO ON(JOB_HEADER.JOB=V_ORDER_TO_WO.JOB AND JOB_HEADER.SUFFIX=V_ORDER_TO_WO.SUFFIX) WHERE JOB_HEADER.JOB= '{0}' AND JOB_HEADER.SUFFIX='{1}'",V.LOCAL.SJOB,V.LOCAL.SSUFFIX,V.local.squery)
+Function.ODBC.Connection!Conx.OpenRecordsetRO("rstWIR3",V.Local.squery)
+	F.Intrinsic.Control.If(V.ODBC.Conx!rstWIR3.EOF,=,False)
+	V.Local.sPart.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Part)	
+	V.Local.sPartLoc.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Location)
+	V.Local.sDescription.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Description)
+	V.Local.sCustomer.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Customer)
+	V.Local.sPO.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Customer_PO)
+	V.Local.sDueDate.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Date_Due)
+	V.Local.sCloseDate.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Date_Closed)
+	V.Local.sSO.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Order_No)
+	V.Local.sSOline.Set(V.ODBC.Conx!rstWIR3.FieldValTrim!Order_Line)
+	F.Intrinsic.String.Left(V.Local.sSOline,3,V.Local.sSOline)
+	F.Intrinsic.Control.else
+'VALIDATE JOB-SUFFIX
+
+		F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Invalid Job-Suffix {0} - {1}</tr></td></center>",V.Local.sJob,V.Local.sSuffix,V.Local.sResults)
+		F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+
+	F.Intrinsic.Control.CallSub(close)
+	F.Intrinsic.Control.EndIf
+
+
+	F.Intrinsic.Control.If(V.Local.sCloseDate,<>,"000000")
+
+		F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Job: {0} - {1} is closed</tr></td></center>",V.Local.sJob,V.Local.sSuffix,V.Local.sResults)
+		F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+
+	F.Intrinsic.Control.CallSub(close)
+	F.Intrinsic.Control.EndIf
+	
+	F.ODBC.Conx!rstWIR3.Close
+
+F.Intrinsic.String.BUILD("select O.PART,H.LOCATION,I.LBS,I.LENGTH,I.WIDTH,I.UM_INVENTORY,I.WT_PER_FOOT from V_JOB_OPERATIONS O LEFT OUTER JOIN V_JOB_HEADER H ON O.JOB=H.JOB AND O.SUFFIX=H.SUFFIX LEFT OUTER JOIN V_INVENTORY_ALL I ON O.PART=I.PART AND H.LOCATION=I.LOCATION where O.JOB='{0}' AND O.SUFFIX='{1}' AND O.SEQ = '{2}' AND O.LMO = 'M'",V.Local.sJob,V.local.ssuffix,V.local.sseq,V.local.sQuery)
+		F.ODBC.Connection!Conx.OpenRecordsetRO("WIR4",V.LOCAL.sQuery)
+		F.Intrinsic.Control.If(V.ODBC.Conx!WIR4.EOF,=,False)
+			V.Local.sMPart.Set(V.ODBC.Conx!WIR4.FieldValTrim!Part)
+			f.Intrinsic.String.Split(v.Local.sMPart,"*",v.Local.stemp)
+			f.Intrinsic.String.build("{0}M",v.Local.stemp(0),v.Local.sDropPart)
+			v.Local.fLBS.Set(V.ODBC.Conx!WIR4.FieldValTrim!LBS)
+			v.Local.fLength.Set(V.ODBC.Conx!WIR4.FieldValTrim!Length)
+			v.Local.fWidth.Set(V.ODBC.Conx!WIR4.FieldValTrim!Width)
+			v.Local.fLBS.Set(V.ODBC.Conx!WIR4.FieldValTrim!LBS)
+			v.Local.sUM.Set(V.ODBC.Conx!WIR4.FieldValTrim!UM_INVENTORY)
+			V.Local.fWtperFoot.Set(V.ODBC.Conx!WIR4.FieldValTrim!WT_PER_FOOT)
+		F.Intrinsic.Control.Else
+		'VALIDATE MATERIAL SEQUENCE	
+			F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Invalid Material Sequence {0}</tr></td></center>",V.Local.sSeq,V.Local.sResults)
+			F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+	
+			F.Intrinsic.Control.CallSub(close)
+			F.Intrinsic.Control.EndIf
+			F.ODBC.Conx!WIR4.Close
+
+F.Intrinsic.Debug.Stop
+'Received to inventory and issued to job J55 and Z10
+F.Intrinsic.String.build("select SUM(I.QUANTITY) QUANTITY,MAX(I.COST) COST,MAX(I.BIN) BIN,MAX(I.HEAT) HEAT,MAX(I.SERIAL_NUMBER) SERIAL_NUMBER, MAX(I.LOT) LOT,MAX(U.USR_FIELD_7) USR_FIELD_7,MAX(U.USR_FIELD_1) USR_FIELD_1,MAX(U.USR_FIELD_2) USR_FIELD_2,MAX(U.USR_FIELD_3) USR_FIELD_3 from V_ITEM_HISTORY I left outer join V_ITEM_HIST_USR U ON I.PART=U.PART AND I.LOCATION=U.LOCN AND I.DATE_HISTORY=U.KEY_DATE AND I.TIME_ITEM_HISTORY=U.KEY_TIME where I.JOB='{0}' and I.Suffix = '{1}' and I.sequence = '{2}' and I.lot = '{3}' and I.CODE_TRANSACTION IN ('J55','Z10') GROUP BY I.LOT,I.HEAT, I.SERIAL_NUMBER",V.local.sjob,V.local.ssuffix,V.local.sseq,V.local.sLot,V.local.sQuery)
+		F.ODBC.Connection!Conx.OpenRecordsetRO("WIR5",V.LOCAL.sQuery)
+		F.Intrinsic.Control.If(V.ODBC.Conx!WIR5.EOF,=,False)
+			V.Local.matchtoitemhistory.Set("YES")
+			V.Local.sItemHistoryLotQty.Set(V.ODBC.Conx!WIR5.FieldValTrim!QUANTITY)
+			V.Local.slotcost.Set(V.ODBC.Conx!WIR5.FieldValTrim!COST)
+			'DCC
+			V.Local.sHistbin.Set(V.ODBC.Conx!WIR5.FieldValTrim!BIN)
+			F.Intrinsic.Control.If(V.Local.sbin,=,"")
+				V.Local.sbin.Set(V.ODBC.Conx!WIR5.FieldValTrim!BIN)
+			F.Intrinsic.Control.EndIf
+			V.Local.sheat.Set(V.ODBC.Conx!WIR5.FieldValTrim!HEAT)
+			f.Intrinsic.Math.IsNumeric(V.ODBC.Conx!WIR5.FieldValTrim!USR_FIELD_7,v.Local.bisnumeric)
+			f.Intrinsic.Control.if(v.Local.bisnumeric)
+				v.Local.fBFperboard.Set(V.ODBC.Conx!WIR5.FieldValTrim!USR_FIELD_7)
+			f.Intrinsic.Control.Else
+				v.Local.fBFperboard.Set(0)
+			f.Intrinsic.Control.EndIf
+			V.Local.sUser1.Set(V.ODBC.Conx!WIR5.FieldValTrim!USR_FIELD_1)
+			V.Local.sUser2.Set(V.ODBC.Conx!WIR5.FieldValTrim!USR_FIELD_2)
+			V.Local.sUser3.Set(V.ODBC.Conx!WIR5.FieldValTrim!USR_FIELD_3)
+		F.Intrinsic.Control.EndIf
+'Received to Job R10 and R11
+F.Intrinsic.String.build("select -SUM(I.QUANTITY) QUANTITY,MAX(I.COST) COST,MAX(I.BIN) BIN,MAX(I.HEAT) HEAT,MAX(I.SERIAL_NUMBER) SERIAL_NUMBER, MAX(I.LOT) LOT,MAX(U.USR_FIELD_7) USR_FIELD_7,MAX(U.USR_FIELD_1) USR_FIELD_1,MAX(U.USR_FIELD_2) USR_FIELD_2,MAX(U.USR_FIELD_3) USR_FIELD_3 from V_ITEM_HISTORY I left outer join V_ITEM_HIST_USR U ON I.PART=U.PART AND I.LOCATION=U.LOCN AND I.DATE_HISTORY=U.KEY_DATE AND I.TIME_ITEM_HISTORY=U.KEY_TIME where I.JOB='{0}' and I.Suffix = '{1}' and I.sequence = '{2}' and I.lot = '{3}' and CODE_TRANSACTION IN ('R10','R11') AND I.QUANTITY > 0 GROUP BY I.LOT,I.HEAT, I.SERIAL_NUMBER",V.local.sjob,V.local.ssuffix,V.local.sseq,V.local.sLot,V.local.sQuery)
+		F.ODBC.Connection!Conx.OpenRecordsetRO("Rtrans",V.LOCAL.sQuery)
+		F.Intrinsic.Control.If(V.ODBC.Conx!Rtrans.EOF,=,False)
+			V.Local.matchtoitemhistory.Set("YES")
+			V.Local.sItemHistoryLotQtyR.Set(V.ODBC.Conx!Rtrans.FieldValTrim!QUANTITY)
+			F.Intrinsic.Math.Add(V.Local.sItemHistoryLotQty,V.Local.sItemHistoryLotQtyR,V.Local.sItemHistoryLotQty)
+			F.Intrinsic.Control.If(V.Local.slotcost,=,0)
+				V.Local.slotcost.Set(V.ODBC.Conx!Rtrans.FieldValTrim!COST)
+			F.Intrinsic.Control.EndIf
+			'DCC
+				V.Local.sHistbin.Set(V.ODBC.Conx!Rtrans.FieldValTrim!BIN)
+			F.Intrinsic.Control.If(V.Local.sbin,=,"")
+				V.Local.sbin.Set(V.ODBC.Conx!Rtrans.FieldValTrim!BIN)
+			F.Intrinsic.Control.EndIf		
+			V.Local.sheat.Set(V.ODBC.Conx!Rtrans.FieldValTrim!HEAT)	
+			f.Intrinsic.Math.IsNumeric(V.ODBC.Conx!Rtrans.FieldValTrim!USR_FIELD_7,v.Local.bisnumeric)
+			f.Intrinsic.Control.if(v.Local.bisnumeric)
+				v.Local.fBFperboard.Set(V.ODBC.Conx!Rtrans.FieldValTrim!USR_FIELD_7)
+			f.Intrinsic.Control.Else
+				v.Local.fBFperboard.Set(0)
+			f.Intrinsic.Control.EndIf
+			V.Local.sUser1.Set(V.ODBC.Conx!Rtrans.FieldValTrim!USR_FIELD_1)
+			V.Local.sUser2.Set(V.ODBC.Conx!Rtrans.FieldValTrim!USR_FIELD_2)
+			V.Local.sUser3.Set(V.ODBC.Conx!Rtrans.FieldValTrim!USR_FIELD_3)
+		F.Intrinsic.Control.EndIf
+
+'calculate Qty to return/drop to inventory
+F.Intrinsic.Control.SelectCase(V.Local.sUM)
+	F.Intrinsic.Control.Case("BF")
+		'continue
+		F.Intrinsic.Control.If(V.Local.iPCs,>,0)			
+			'Pcs*Boardfeet per board (stored in item_master_user_field_7)
+			f.Intrinsic.Math.Mult(v.Local.iPCs,v.Local.fBFperboard,v.Local.sLotQty)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.BUILD("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Pieces must be inputted</tr></td></center>",V.Local.iPCs,V.Local.sResults)
+			F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+			F.Intrinsic.Control.CallSub(close)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.CaseElse
+		F.Intrinsic.String.BUILD("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Part returned must be UM = BF not {0}</tr></td></center>",V.Local.sUM,V.Local.sResults)
+			F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+			F.Intrinsic.Control.CallSub(close)
+F.Intrinsic.Control.EndSelect
+
+F.Intrinsic.Control.If(V.Local.sLotQty,=,0)
+	F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Invalid Qty {0}</tr></td></center>",V.local.slotqty,V.Local.sResults)
+	F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+	F.Intrinsic.Control.CallSub(close)	
+F.Intrinsic.Control.EndIf
+
+'change to negative qty
+f.Intrinsic.Math.Mult(v.Local.sLotQty,-1,v.Local.sLotQty)
+
+'VALIDATE LOT/BIN WITH ITEM HISTORY FOR JOB
+F.Intrinsic.Control.If(V.Local.matchtoitemhistory,<>,"YES")
+
+		F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Invalid Lot entered {0}</tr></td></center>",V.Local.sLot,V.Local.sResults)
+		F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+		F.Intrinsic.Control.CallSub(close)
+F.Intrinsic.Control.EndIf
+F.ODBC.Conx!WIR5.Close
+F.ODBC.Conx!Rtrans.Close
+
+'VALIDATE LOT/BIN QUANTITY WITH ITEM HISTORY FOR JOB AND QUANTITY SUBMITTED
+		F.Intrinsic.Control.If(V.Local.sLotQty,<,V.Local.sItemHistoryLotQty)		
+	
+		F.Intrinsic.Math.Mult(V.Local.sItemHistoryLotQty,-1,V.Local.sItemHistoryLotQty)
+		F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Returning more to stock than originally issued to Job. | Issued {0} RTS {1}  | Lot/Heat/Serial {2} / {3} / {4}</tr></td></center>",V.Local.sItemHistoryLotQty,V.Local.sLotQty,V.Local.sLot,V.Local.sheat,V.Local.sserial,V.Local.sResults)
+		F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+
+		F.Intrinsic.Control.CallSub(close)
+		F.Intrinsic.Control.EndIf
+		
+'VALIDATE BIN TO BIN MASTER
+
+F.Intrinsic.String.build("select BIN,LOCATION from V_BIN_MASTER where BIN='{0}' and LOCATION='{1}'",V.local.sbin,V.local.sPartloc,V.local.sQuery)
+		F.ODBC.Connection!Conx.OpenRecordsetRO("BIN",V.LOCAL.sQuery)
+		F.Intrinsic.Control.If(V.ODBC.Conx!BIN.EOF,=,True)
+
+			F.Intrinsic.String.build("<tr><td style=color:Red;font-weight:bold;><center><mark>FAILED</mark>: Invalid Bin entered {0}</tr></td></center>",V.Local.sbin,V.Local.sResults)
+			F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+	
+			F.Intrinsic.Control.CallSub(close)
+		F.Intrinsic.Control.EndIf
+		F.ODBC.Conx!BIN.Close
+Function.Intrinsic.Debug.Stop
+		
+'WRITE NEW LOT/BIN TO ITEM_MASTER TABLE
+
+F.Intrinsic.String.build("select * from V_ITEM_MASTER where PART='{0}' and location='{1}' and Lot='{2}' and heat='{3}' and serial_number='{4}' and bin='{5}'",V.local.sMPart,V.local.sPartloc,V.local.sLot,V.local.sheat,V.local.sserial,V.Local.sbin,V.local.sQuery)
+		F.ODBC.Connection!Conx.OpenRecordsetRO("WIR7",V.LOCAL.sQuery)
+		F.Intrinsic.Control.If(V.ODBC.Conx!WIR7.EOF,=,True)
+		
+		V.Local.sQuery.Set("SELECT * from ITEM_MASTER")
+		Function.ODBC.Connection!Conx.OpenRecordsetRW("rstitem",V.Local.sQuery)
+
+		Function.ODBC.Conx!rstitem.AddNew
+		Function.ODBC.Conx!rstitem.Set!PART(V.Local.sMPart)
+		Function.ODBC.Conx!rstitem.Set!LOCATION(V.Local.sPartloc)
+		Function.ODBC.Conx!rstitem.Set!LOT(V.Local.sLot)
+		Function.ODBC.Conx!rstitem.Set!BIN(V.Local.sbin)
+		Function.ODBC.Conx!rstitem.Set!HEAT(V.Local.sheat)
+		Function.ODBC.Conx!rstitem.Set!SERIAL_NUMBER(V.Local.sserial)
+		Function.ODBC.Conx!rstitem.Set!USER_FIELD_1(V.Local.sUser1)
+		Function.ODBC.Conx!rstitem.Set!USER_FIELD_2(V.Local.sUser2)
+		Function.ODBC.Conx!rstitem.Set!USER_FIELD_3(V.Local.sUser3)
+		Function.ODBC.Conx!rstitem.Set!USER_FIELD_7(V.Local.fBFperboard)
+		Function.ODBC.Conx!rstitem.Set!QUANTITY(0)
+		Function.ODBC.Conx!rstitem.Set!QTY_AVAILABLE_SHIP(0)
+		Function.ODBC.Conx!rstitem.Set!UNIT_COST(V.Local.slotcost)
+		Function.ODBC.Conx!rstitem.Set!MATL_COST(V.Local.slotcost)
+		Function.ODBC.Conx!rstitem.Set!DATE_LAST_REC("00000000")
+		Function.ODBC.Conx!rstitem.Set!DATE_EXPIRATION("00000000")
+		Function.ODBC.Conx!rstitem.Set!USERID(V.Local.sUID)
+		F.ODBC.Conx!rstitem.Update
+		F.ODBC.Conx!rstitem.Close
+
+		F.Intrinsic.Control.ENDIF
+		F.ODBC.Conx!WIR7.Close
+
+'WRITE J55 TRANSACTIONS TO WIRELESS TABLES
+
+V.Local.squery.Set("Select TOP 1 TRANS_ID from WIRELESS_HDR ORDER BY TRANS_ID DESC")
+	Function.ODBC.Connection!Conx.OpenRecordsetRO("WIR8",V.Local.squery)
+	F.Intrinsic.Control.If(V.ODBC.Conx!WIR8.EOF,=,False)
+	V.Local.stransidnew.Set(V.ODBC.Conx!WIR8.FieldVALTRIM!TRANS_ID)
+	F.Intrinsic.Math.Add(V.Local.stransidnew,1,V.Local.stransIDnew)
+	F.Intrinsic.String.LPad(V.Local.stransIDnew,"0",9,V.Local.stransIDnew)
+	F.ODBC.Conx!WIR8.Close
+	F.Intrinsic.Control.EndIf
+
+'WRITE TO WIRELESS_HDR
+V.Local.sQuery.Set("SELECT * from WIRELESS_HDR")
+Function.ODBC.Connection!Conx.OpenRecordsetRW("rstNew",V.Local.sQuery)
+
+		Function.ODBC.Conx!rstNew.AddNew
+		Function.ODBC.Conx!rstNew.Set!TRANS_ID(V.Local.stransIDnew)
+		Function.ODBC.Conx!rstNew.Set!TRANS_TYPE("J55")
+		Function.ODBC.Conx!rstNew.Set!ATTEMPTED_DATE("00000000")
+		Function.ODBC.Conx!rstNew.Set!ATTEMPTED_TIME("00000000")
+		Function.ODBC.Conx!rstNew.Set!LABEL_PRINTER(V.Local.sPrinter)
+		Function.ODBC.Conx!rstNew.Set!USER_ID(V.Local.sUID)
+		Function.ODBC.Conx!rstNew.Set!BATCH(0)
+		Function.ODBC.Conx!rstNew.Set!Attempted_Flag("Y")
+		F.ODBC.Conx!rstNew.Update
+		F.ODBC.Conx!rstNew.Close
+'WRITE TO WIRELESS_LINE
+V.Local.sQuery.Set("SELECT * from WIRELESS_LINE")
+Function.ODBC.Connection!Conx.OpenRecordsetRW("rstNew1",V.Local.sQuery)
+
+		Function.ODBC.Conx!rstNew1.AddNew
+		Function.ODBC.Conx!rstNew1.Set!TRANS_ID(V.Local.stransIDnew)
+		Function.ODBC.Conx!rstNew1.Set!SEQ("0000")
+		Function.ODBC.Conx!rstNew1.Set!TRANS_TYPE("J55")
+		Function.ODBC.Conx!rstNew1.Set!FIELD_1(V.Local.sMPart)
+'SPLIT PART REV
+		'read the SS > Company Options (Standard) > Inventory > Use Revision Level/Engineering Change
+		F.Global.General.ReadOption(070008, 0, False, V.Local.bRev)
+		F.Intrinsic.Control.If(V.Local.bRev)
+			f.Intrinsic.String.Mid(v.Local.sMPart,18,3,v.local.sPartRev)
+		Function.ODBC.Conx!rstNew1.Set!FIELD_2(v.Local.spartrev)
+		f.Intrinsic.Control.Else
+			Function.ODBC.Conx!rstNew1.Set!FIELD_2("")
+		f.Intrinsic.Control.EndIf
+		Function.ODBC.Conx!rstNew1.Set!FIELD_3(V.Local.sPartloc)
+'MODIFY QUANTITY TO INCLUDE PADDED DECIMAL 0000
+		F.Intrinsic.String.Split(V.Local.sLotQty,".",V.Local.snewlotqtytxt)
+		F.Intrinsic.Control.If(v.Local.snewlotqtytxt(1),<>,"OOB")		
+			F.Intrinsic.String.Build("{0}{1}",v.Local.snewlotqtytxt(0),f.Intrinsic.String.RPad(v.Local.snewlotqtytxt(1).left4,"0",4,v.Local.snewlotqtytxt),v.Local.snewlotqtytxt)
+			Function.ODBC.Conx!rstNew1.Set!FIELD_4(v.Local.snewlotqtytxt)
+		F.Intrinsic.Control.Else
+			F.Intrinsic.String.Build("{0}{1}",v.Local.sLotQty,"0000",v.Local.snewlotqtytxt)
+			Function.ODBC.Conx!rstNew1.Set!FIELD_4(v.Local.snewlotqtytxt)
+		F.Intrinsic.Control.EndIf
+'LOT
+		Function.ODBC.Conx!rstNew1.Set!FIELD_5(V.Local.sLot)
+'BIN
+		Function.ODBC.Conx!rstNew1.Set!FIELD_6(V.Local.sbin)
+'HEAT
+		Function.ODBC.Conx!rstNew1.Set!FIELD_7(V.Local.sHEAT)
+'SERIAL
+		Function.ODBC.Conx!rstNew1.Set!FIELD_8(V.Local.sserial)
+		Function.ODBC.Conx!rstNew1.Set!FIELD_9(V.Local.sJob)
+		Function.ODBC.Conx!rstNew1.Set!FIELD_10(V.Local.sSuffix)
+		Function.ODBC.Conx!rstNew1.Set!FIELD_11(V.Local.sSeq)
+		Function.ODBC.Conx!rstNew1.Set!FIELD_12("1")
+'pass number of labels to print for hook 31982	
+		Function.ODBC.Conx!rstNew1.Set!FIELD_22(v.Local.iLabels)
+		Function.ODBC.Conx!rstNew1.Set!ERROR_ID(0)
+		F.ODBC.Conx!rstNew1.Update
+		F.ODBC.Conx!rstNew1.Close
+
+'REMOVE ATTEMPTED_FLAG FOR WIREPOLL TO PROCESS
+F.Intrinsic.String.Build("UPDATE WIRELESS_HDR SET ATTEMPTED_FLAG= '' WHERE TRANS_ID = '{0}'",V.Local.stransIDnew,V.Local.sQuery)
+F.ODBC.Connection!Conx.Execute(V.Local.sQuery)
+
+
+V.Local.sQuery.Set("SELECT * from MOBILE_CUSTOM_RESULT")
+
+		F.Intrinsic.String.build("<tr><td style=color:Green;font-weight:bold;><center><mark>SUCCESSFUL</mark>: RTS request for JSS {0} - {1} - {2} Lot /Bin Qty {3} LBHS {4} - {5} - {6} - {7}</tr></td></center>",V.Local.sJob,V.Local.sSuffix,V.Local.sSeq,V.local.slotqty,V.local.slot,V.Local.sbin,V.Local.sheat,V.Local.sserial,V.Local.sResults)
+		F.Global.Mobile.setcustomresult(v.Caller.CompanyCode,v.Local.sTransID,v.Local.sResults)
+
+'CHECK IF DCC LINKS EXISTS FOR ENTERED sBIN.  IF FALSE THEN COPY LINKS FROM ORIGINAL ITEM HISTORY TO J55 FOR LOT sHISTBIN
+	F.Intrinsic.String.RPad(V.Local.sMPart," ",20,V.Local.sMPart)
+	F.Intrinsic.String.RPad(V.Local.sPartLoc," ",2,V.Local.sPartLoc)
+	F.Intrinsic.String.RPad(V.Local.sLot," ",15,V.Local.sLot)
+	F.Intrinsic.String.RPad(V.Local.sBin," ",6,V.Local.sBin)
+	F.Intrinsic.String.RPad(V.Local.sHistBin," ",6,V.Local.sHistBin)
+	F.Intrinsic.String.RPad(V.Local.sHeat," ",15,V.Local.sHeat)
+	F.Intrinsic.String.RPad(V.Local.sSerial," ",30,V.Local.sSerial)
+
+F.Intrinsic.String.Concat(V.Local.sMPart,V.Local.sPartLoc,V.Local.sLot,V.Local.sHistBin,V.Local.sHeat,V.Local.sSerial,V.Local.sIDlink)
+
+F.Global.DocumentControl.GetLinkID(V.Local.sIDLink,31,V.Local.iIDLink)
+		F.Intrinsic.String.Concat("Select FILE_NUM, FILE from ATG_DOC_ASSOC Where LINK_ID='",V.Local.iIDLink,"'",V.Local.sSQL)
+		F.ODBC.Connection!conx.OpenRecordsetRO("rstLFile",V.Local.sSQL)
+		F.Intrinsic.Control.DoUntil(V.ODBC.conx!rstLFile.EOF,=,"True")
+			V.Local.iFileNumdcc.Set(V.ODBC.conx!rstLFile.FieldVal!FILE_NUM)
+			F.Intrinsic.String.Trim(V.ODBC.conx!rstLFile.FieldVal!FILE,V.Local.sFiledcc)
+' Check and/or create Link ID for return Bin
+			F.Intrinsic.String.Concat(V.Local.sDropPart,V.Local.sPartLoc,V.Local.sLot,V.Local.sBIN,V.Local.sHeat,V.Local.sdimserial,V.Local.sIDlink2)
+			F.Global.DocumentControl.GetLinkID(V.Local.sIDLink2,31,V.Local.iIDLink)
+			F.Intrinsic.Control.If(V.Local.iIDLink2,<,1)
+				F.Global.DocumentControl.CreateReference(V.Local.sIDLink2,31,V.Local.iIDLink2)
+			F.Intrinsic.Control.Endif
+' Get DocumentID, checks if the file exists in the return Bin
+			F.Global.DocumentControl.GetDocumentID(V.Local.iIDLink2,V.Local.sFiledcc,V.Local.sDccExists)
+			F.Intrinsic.Control.If(V.Local.sDccExists,=,"")
+'Add DCC to To Part/Bin using SQL
+				V.Local.sSql2.Set("INSERT INTO ATG_DOC_ASSOC (LINK_ID, FILE_TYPE, PATH, FILE, DESCRIPTION, DATE_ADDED, GS_USER, GRP_ID, INFO_1, INFO_2, STATUS, REV, INV_NON_REV)")
+				F.Intrinsic.String.Concat(V.Local.sSql2," SELECT '",V.Local.iIDLink2,"' , FILE_TYPE, PATH, FILE, DESCRIPTION, DATE_ADDED, GS_USER, GRP_ID, INFO_1, INFO_2, STATUS, REV, INV_NON_REV",V.Local.sSql2)
+				F.Intrinsic.String.Concat(V.Local.sSql2," FROM ATG_DOC_ASSOC WHERE FILE_NUM='",V.Local.iFileNumdcc,"'",V.Local.sSql2)
+				F.ODBC.Connection!conx.Execute(V.Local.sSql2)
+			F.Intrinsic.Control.endif
+
+		F.ODBC.conx!rstLFile.MoveNext
+		F.Intrinsic.Control.Loop
+		F.ODBC.conx!rstLFile.Close
+
+F.ODBC.Connection!Conx.Close
+'F.ODBC.Connection!Cony.Close
+f.Intrinsic.Control.EndIf
+
+F.Intrinsic.Control.Catch
+	F.Intrinsic.String.Build("Project: {0}{1}{1}Subroutine: {2}{1}Error Occurred {3} with description {4}{1}{1}GAB Version: {5}",v.Caller.ScriptFile,V.Ambient.Newline,V.Ambient.CurrentSubroutine,V.Ambient.ErrorNumber,V.Ambient.ErrorDescription,V.Ambient.GABVersion,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	
+F.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.close.Start
+F.ODBC.Connection!Conx.Close
+'F.ODBC.Connection!Cony.Close
+F.Intrinsic.Control.End
+Program.Sub.close.End
+
+Program.Sub.Comments.Start
+${$0$}$ATG-Transactions-ADD_CONTACT$}$TSP$}$08/27/12
+${$3$}$0$}$$}$0$}$-1$}$$}$12:00:00 AM$}$Quote Number: 4796
+${$4$}$0$}$$}$0$}$-1$}$Brady$}$03/31/16 9:07:06 PM$}$Modified script to support document control item links for J55 return to stock.  Copies links from item record of original lot/bin to the new bin returned to from Job
+${$5$}$2.0.0.0$}$2
+${$6$}$bstevens$}$20221207131738533$}$3Pg7+K2MGztoXyjxMVZqWaM5g3GOUsSNBds2ZN5hF7Zln3Ek2F6ogE/khksFnqvvAMadjdkZAV5g5H3XCZphhA==
+Program.Sub.Comments.End
+
